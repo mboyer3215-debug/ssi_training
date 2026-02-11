@@ -73,7 +73,7 @@ const code=document.getElementById('login-code').value.trim();
 if(!code)return;
 db.ref('trainees').once('value',snap=>{
 const t=snap.val();if(!t){showLoginError('Code invalide');return;}
-let found=null;Object.values(t).forEach(x=>{if(x.code===code)found=x;});
+let found=null;const arr=Array.isArray(t)?t:Object.values(t);arr.forEach(x=>{if(x.pin===code)found=x;});
 if(found){STATE.currentUser=found;STATE.currentView='training';render();}
 else showLoginError('Code invalide');
 });
