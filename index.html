@@ -96,7 +96,10 @@ document.addEventListener('touchstart',()=>{initAudio();if(audioContext&&audioCo
 function b64toAB(uri){const b=atob(uri.split(',')[1]);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer;}
 
 function playAlarmSound(){initAudio();if(audioContext.state==='suspended')audioContext.resume();if(alarmOscillator)return;alarmOscillator=audioContext.createOscillator();const g=audioContext.createGain();alarmOscillator.connect(g);g.connect(audioContext.destination);alarmOscillator.frequency.value=1000;g.gain.value=0.3;alarmOscillator.start();}
-function stopAlarmSound(s){if(alarmOscillator){try{alarmOscillator.stop();}catch(e){}alarmOscillator=null;}STATE.sdi.alarmSound=false;if(!s)logAction('Arrêt signal sonore');}
+function stopAlarmSound(s){if(alarmOscillator){try{alarmOscillator.stop();}catch(e){}alarmOscillator=null;}STATE.sdi.alarmSound=false;if(!s){logAction('Arrêt signal sonore');
+// In réarmement scenario: show guide after stopping sound
+if(STATE.activeScenario==='rearmement'&&!STATE.scenarioState.rearmGuideShown){STATE.scenarioState.rearmGuideShown=true;setTimeout(()=>{showRearmementGuideModal();},800);}
+}}
 
 async function playGeneralAlarm(type){
 stopGeneralAlarm();initAudio();if(audioContext.state==='suspended')await audioContext.resume();
@@ -166,7 +169,10 @@ function startTemporization(){if(temporizationTimer)clearInterval(temporizationT
 function updateTemporizationDisplay(){const el=document.querySelector('.temporization-display');if(el&&STATE.uga.temporizationActive){el.innerHTML='<div class="bg-yellow-600 text-white p-2 rounded text-center font-bold text-xs">⏱️ '+Math.floor(STATE.uga.temporizationRemaining/60)+':'+String(STATE.uga.temporizationRemaining%60).padStart(2,'0')+'</div>';}else if(el)el.innerHTML='';}
 function triggerGeneralAlarm(){STATE.uga.alarmActive=true;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;if(temporizationTimer)clearInterval(temporizationTimer);playGeneralAlarm(STATE.uga.alarmType);addSmsiMessage('Alarme '+STATE.uga.alarmType+' déclenchée');logAction('Déclenchement alarme générale',STATE.uga.alarmType);render();}
 function forceGeneralAlarm(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;}if(!STATE.uga.alarmActive)triggerGeneralAlarm();}
-function acquitProcess(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;addSmsiMessage('Processus alarme acquitté');logAction('Acquit processus alarme');render();}}
+function acquitProcess(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;addSmsiMessage('Processus alarme acquitté');logAction('Acquit processus alarme');
+// In training: show levée de doute modal
+if(STATE.activeScenario==='declenchement_dai'||STATE.activeScenario==='declenchement_dm'){setTimeout(()=>{showLeveeDouteModal();},800);}
+render();}}
 
 function canResetSdiSystem(){return STATE.accessLevel===2&&STATE.sdi.manualAlarms.every(d=>!d.triggered)&&STATE.sdi.detectors.every(d=>!d.triggered);}
 function canResetSmsiSystem(){return STATE.smsiAccessLevel>=2&&[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].every(z=>z.state==='attente');}
@@ -208,12 +214,48 @@ if(zt==='compartment'){z=STATE.smsi.compartmentZones.find(x=>x.id===id);addSmsiM
 else{z=STATE.smsi.smokeZones.find(x=>x.id===id);addSmsiMessage('Commande démarrage '+z.address);logAction('Commande démarrage '+z.address);}
 z.commandActive=true;render();}
 function stopRelay(id){const r=STATE.smsi.relayBoxes.find(x=>x.id===id);r.stopped=!r.stopped;addSmsiMessage('Coffret '+id+(r.stopped?' arrêté':' redémarré'));logAction((r.stopped?'Arrêt':'Redémarrage')+' coffret '+id);render();}
-function testSignalization(){addSmsiMessage('Test signalisation...');logAction('Test signalisation');setTimeout(()=>{addSmsiMessage('Test OK');render();},2000);render();}
+function testSignalization(){
+addSmsiMessage('Test signalisation en cours...');logAction('Test signalisation');
+// Save current LED states
+const savedZC=STATE.smsi.compartmentZones.map(z=>({r:{...z.ledRed},o:{...z.ledOrange},g:{...z.ledGreen}}));
+const savedZF=STATE.smsi.smokeZones.map(z=>({r:{...z.ledRed},o:{...z.ledOrange},g:{...z.ledGreen}}));
+const savedCR=STATE.smsi.relayBoxes.map(r=>({r:{...r.ledRed},o:{...r.ledOrange},g:{...r.ledGreen}}));
+// Light up ALL LEDs
+STATE.smsi.compartmentZones.forEach(z=>{z.ledRed={on:true,blink:false};z.ledOrange={on:true,blink:false};z.ledGreen={on:true,blink:false};});
+STATE.smsi.smokeZones.forEach(z=>{z.ledRed={on:true,blink:false};z.ledOrange={on:true,blink:false};z.ledGreen={on:true,blink:false};});
+STATE.smsi.relayBoxes.forEach(r=>{r.ledRed={on:true,blink:false};r.ledOrange={on:true,blink:false};r.ledGreen={on:true,blink:false};});
+STATE.testSignalActive=true;
+render();
+setTimeout(()=>{
+STATE.smsi.compartmentZones.forEach((z,i)=>{z.ledRed=savedZC[i].r;z.ledOrange=savedZC[i].o;z.ledGreen=savedZC[i].g;});
+STATE.smsi.smokeZones.forEach((z,i)=>{z.ledRed=savedZF[i].r;z.ledOrange=savedZF[i].o;z.ledGreen=savedZF[i].g;});
+STATE.smsi.relayBoxes.forEach((r,i)=>{r.ledRed=savedCR[i].r;r.ledOrange=savedCR[i].o;r.ledGreen=savedCR[i].g;});
+STATE.testSignalActive=false;
+addSmsiMessage('Test signalisation OK - Tous voyants fonctionnels');render();
+},3000);
+}
 function bilanSystem(){const d=[];
 STATE.sdi.detectors.forEach(x=>{if(x.outOfService||x.state==='hors-service')d.push(x.address+' HS');});
 STATE.sdi.manualAlarms.forEach(x=>{if(x.outOfService||x.state==='hors-service')d.push(x.address+' HS');});
-[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].forEach(z=>{if(z.state!=='attente')d.push(z.address+': '+z.state);});
-addSmsiMessage(d.length===0?'BILAN: Système nominal':'BILAN: '+d.join(', '));logAction('Bilan système',d.length+' défaut(s)');render();}
+[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].forEach(z=>{
+if(z.state!=='attente'&&z.state!=='securite')d.push(z.address+': '+z.state);
+else if(z.state==='attente'){z.ledGreen={on:true,blink:false};z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};}
+});
+STATE.smsi.relayBoxes.forEach(r=>{
+if(r.state==='attente'){r.ledGreen={on:true,blink:false};r.ledRed={on:false,blink:false};r.ledOrange={on:false,blink:false};}
+else if(r.state!=='securite')d.push(r.address+': '+r.state);
+});
+if(STATE.sdi.batteryState==='hors-service')d.push('Batterie SDI HS');
+if(STATE.sdi.powerState==='batterie')d.push('SDI sur batterie');
+if(STATE.smsi.batteryState==='hors-service')d.push('Batterie SMSI HS');
+addSmsiMessage(d.length===0?'BILAN: Système nominal - Aucun défaut':'BILAN: '+d.join(', '));logAction('Bilan système',d.length+' défaut(s)');
+// After 3s restore LEDs to normal state
+setTimeout(()=>{[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].forEach(z=>{if(z.state==='attente')z.ledGreen={on:false,blink:false};});STATE.smsi.relayBoxes.forEach(r=>{if(r.state==='attente')r.ledGreen={on:false,blink:false};});render();},3000);
+// Show interactive modal if defects found in scenario
+if(STATE.activeScenario==='prise_de_poste'&&d.length>0){setTimeout(()=>{showDefectAnalysisModal(d);},500);}
+else if(STATE.activeScenario==='prise_de_poste'&&d.length===0){setTimeout(()=>{showNominalModal();},500);}
+render();
+}
 
 function startOutOfServiceWorkflow(){if(STATE.accessLevel!==2){addSdiMessage('Niveau 2 requis');return;}STATE.workflowStep='HS_TYPE';STATE.workflowData={};STATE.keypadInput='';addSdiMessage('Mettre hors service: 1)DAI 2)DM');render();}
 function startBackInServiceWorkflow(){if(STATE.accessLevel!==2){addSdiMessage('Niveau 2 requis');return;}if(STATE.outOfService.length===0){addSdiMessage('Aucun matériel HS');return;}STATE.workflowStep='RS_CONFIRM';STATE.keypadInput='';addSdiMessage('Remettre en service? 1)oui 2)non');render();}
@@ -272,8 +314,7 @@ else if(dt===4)STATE.sdi.powerState='batterie';
 else{const id=rand(3);STATE.smsi.compartmentZones[id].state='defaut-attente';updateZoneLeds(STATE.smsi.compartmentZones[id]);}
 }
 addSdiMessage('Effectuez votre prise de poste');
-if(nb===0)addSdiMessage('Le système est nominal');
-else addSdiMessage('Attention: '+nb+' anomalie(s)');
+addSdiMessage('Vérifiez les voyants et faites un bilan');
 }
 else if(type==='declenchement_dai'){
 addSdiMessage('=== DÉCLENCHEMENT DAI ===');addSmsiMessage('=== DÉCLENCHEMENT DAI ===');
@@ -322,6 +363,204 @@ document.body.appendChild(m);
 function showScenarioHelp(){
 const g={prise_de_poste:'procedure_prise_poste',declenchement_dai:'procedure_dai',declenchement_dm:'procedure_dm',rearmement:'procedure_rearmement'};
 showGuidance(g[STATE.activeScenario]||'procedure_prise_poste');
+}
+
+// ===== INTERACTIVE SCENARIO MODALS =====
+function showDefectAnalysisModal(defects){
+const m=document.createElement('div');m.className='modal-overlay';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">⚠️ Défauts détectés</h3>';
+html+='<p style="margin-bottom:12px;font-size:14px">Le bilan a révélé <strong>'+defects.length+' anomalie(s)</strong>. Que devez-vous faire?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="checkAnswer(\'defect_report\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">📝 Consigner les défauts dans la main courante et prévenir le PC sécurité</button>';
+html+='<button onclick="checkAnswer(\'defect_report\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔧 Tenter de réparer les défauts moi-même</button>';
+html+='<button onclick="checkAnswer(\'defect_report\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">❌ Ignorer les défauts et continuer la ronde</button>';
+html+='<button onclick="checkAnswer(\'defect_report\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le système pour effacer les défauts</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function showNominalModal(){
+const m=document.createElement('div');m.className='modal-overlay';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#16a34a">✅ Système nominal</h3>';
+html+='<p style="margin-bottom:12px;font-size:14px">Le bilan ne montre aucun défaut. Quelle est la conduite à tenir?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="checkAnswer(\'nominal\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">📝 Consigner la prise de poste dans la main courante - RAS</button>';
+html+='<button onclick="checkAnswer(\'nominal\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le système par précaution</button>';
+html+='<button onclick="checkAnswer(\'nominal\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⚠️ Mettre le système hors service pour vérification</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function showLeveeDouteModal(){
+const m=document.createElement('div');m.className='modal-overlay';m.id='levee-doute-modal';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#ea580c">🔍 Levée de doute</h3>';
+html+='<p style="margin-bottom:12px;font-size:14px">Vous avez acquitté le processus. Vous devez maintenant effectuer une levée de doute sur la zone concernée.</p>';
+html+='<p style="margin-bottom:16px;font-size:14px;font-weight:bold">Résultat de la levée de doute:</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="leveeDouteResult(\'fausse_alarme\')" style="padding:14px;border-radius:8px;border:2px solid #22c55e;background:#dcfce7;cursor:pointer;text-align:left;font-size:14px;font-weight:bold">✅ Fausse alarme - Rien à signaler</button>';
+html+='<button onclick="leveeDouteResult(\'feu_avere\')" style="padding:14px;border-radius:8px;border:2px solid #ef4444;background:#fee2e2;cursor:pointer;text-align:left;font-size:14px;font-weight:bold">🔥 Feu avéré - Incendie confirmé</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function leveeDouteResult(result){
+const m=document.getElementById('levee-doute-modal');if(m)m.remove();
+if(result==='fausse_alarme'){
+logAction('Levée de doute','Fausse alarme');
+addSdiMessage('Fausse alarme confirmée');
+addSmsiMessage('Fausse alarme - Procéder au réarmement');
+setTimeout(()=>{showFausseAlarmeModal();},500);
+}else{
+logAction('Levée de doute','Feu avéré');
+addSdiMessage('🔥 FEU AVÉRÉ - Zone '+STATE.scenarioState.zone);
+addSmsiMessage('🔥 FEU AVÉRÉ');
+setTimeout(()=>{showFeuAvereModal();},500);
+}
+render();
+}
+
+function showFausseAlarmeModal(){
+const m=document.createElement('div');m.className='modal-overlay';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#16a34a">✅ Fausse alarme</h3>';
+html+='<p style="margin-bottom:12px;font-size:14px">La levée de doute confirme une fausse alarme. Quelle est la procédure?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="checkAnswer(\'fausse_alarme\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SDI (niveau 2) puis réarmer le SMSI (niveau 2) et consigner dans la main courante</button>';
+html+='<button onclick="checkAnswer(\'fausse_alarme\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">📞 Appeler les pompiers par précaution</button>';
+html+='<button onclick="checkAnswer(\'fausse_alarme\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⚠️ Mettre le détecteur hors service</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function showFeuAvereModal(){
+const m=document.createElement('div');m.className='modal-overlay';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">🔥 Feu avéré!</h3>';
+html+='<p style="margin-bottom:12px;font-size:14px">Un incendie est confirmé dans la zone. Quelle est la conduite à tenir?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="checkAnswer(\'feu_avere\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚒 Appeler les secours (18/112), guider l\'évacuation, ne pas réarmer le SSI</button>';
+html+='<button onclick="checkAnswer(\'feu_avere\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SSI pour arrêter l\'alarme</button>';
+html+='<button onclick="checkAnswer(\'feu_avere\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔇 Couper le signal sonore et attendre</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function showRearmementGuideModal(){
+const m=document.createElement('div');m.className='modal-overlay';m.id='rearm-modal';
+const zone=STATE.scenarioState.zone||1;
+// Find what's triggered
+const triggeredDai=STATE.sdi.detectors.filter(d=>d.triggered);
+const triggeredDm=STATE.sdi.manualAlarms.filter(d=>d.triggered);
+const zonesInSec=[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].filter(z=>z.state==='securite');
+
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#2563eb">🔄 Procédure de réarmement</h3>';
+html+='<p style="margin-bottom:8px;font-size:14px">Pour réarmer le SSI, quels matériels doivent être remis en position?</p>';
+html+='<p style="margin-bottom:12px;font-size:12px;color:#666">Cochez les bonnes réponses:</p>';
+html+='<div id="rearm-choices" style="display:flex;flex-direction:column;gap:6px">';
+
+// Generate choices - mix correct and incorrect
+const choices=[];
+// Correct: DAS zones in sécurité must go back to attente
+zonesInSec.forEach(z=>{choices.push({text:'Remettre '+z.address+' en attente',correct:true,id:'z_'+z.zone});});
+// Correct: triggered DAI needs reset (already auto-reset in scenario)
+triggeredDai.forEach(d=>{choices.push({text:'Réarmer '+d.address,correct:true,id:'d_'+d.id});});
+// Correct: triggered DM needs physical reset
+triggeredDm.forEach(d=>{choices.push({text:'Réarmer physiquement '+d.address,correct:true,id:'m_'+d.id});});
+// Wrong options
+choices.push({text:'Mettre le SDI hors tension',correct:false,id:'w1'});
+choices.push({text:'Débrancher la batterie SMSI',correct:false,id:'w2'});
+
+// Shuffle
+for(let i=choices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[choices[i],choices[j]]=[choices[j],choices[i]];}
+
+choices.forEach((c,i)=>{
+html+='<label style="display:flex;align-items:center;gap:8px;padding:10px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;font-size:13px"><input type="checkbox" data-correct="'+c.correct+'" data-id="'+c.id+'" style="width:18px;height:18px">'+c.text+'</label>';
+});
+html+='</div>';
+html+='<button onclick="validateRearmementChoices()" style="margin-top:16px;width:100%;padding:12px;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:14px">Valider mes choix</button>';
+html+='</div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function validateRearmementChoices(){
+const modal=document.getElementById('rearm-modal');
+const checkboxes=modal.querySelectorAll('input[type=checkbox]');
+let allCorrect=true;let anyWrong=false;
+checkboxes.forEach(cb=>{
+const isCorrect=cb.dataset.correct==='true';
+const isChecked=cb.checked;
+if(isCorrect&&!isChecked)allCorrect=false;
+if(!isCorrect&&isChecked){allCorrect=false;anyWrong=true;}
+// Visual feedback
+const label=cb.parentElement;
+if(isChecked&&!isCorrect)label.style.border='2px solid #ef4444';
+else if(isChecked&&isCorrect)label.style.border='2px solid #22c55e';
+else if(!isChecked&&isCorrect)label.style.border='2px solid #f97316';
+});
+if(allCorrect&&!anyWrong){
+modal.remove();
+// Reset zones to attente so trainee can rearm
+[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].forEach(z=>{if(z.state==='securite'){z.state='attente';z.commandActive=false;updateZoneLeds(z);}});
+STATE.smsi.relayBoxes.forEach(r=>{if(r.state==='securite'){r.state='attente';updateRelayLeds(r);}});
+STATE.sdi.detectors.forEach(d=>d.triggered=false);
+STATE.sdi.manualAlarms.forEach(d=>d.triggered=false);
+addSmsiMessage('DAS remis en position d\'attente');
+addSdiMessage('Détecteurs réarmés - Procédez au réarmement SDI puis SMSI');
+logAction('DAS remis en attente');
+showSuccessModal('🎉 Correct!','Les DAS ont été remis en position d\'attente. Maintenant:<br>1. Passez en niveau 2 SDI (code 00000)<br>2. Réarmez le SDI<br>3. Passez en niveau 2 SMSI (clé 🔑)<br>4. Réarmez le SMSI');
+render();
+}else{
+showErrorInModal('Vérifiez vos choix - certaines réponses sont incorrectes');
+}
+}
+
+function showErrorInModal(msg){
+let err=document.getElementById('rearm-error');
+if(!err){err=document.createElement('div');err.id='rearm-error';
+const modal=document.getElementById('rearm-modal');
+if(modal)modal.querySelector('.modal-content').appendChild(err);}
+err.style.cssText='margin-top:8px;padding:10px;background:#fee2e2;border-radius:8px;color:#dc2626;font-size:13px;font-weight:bold;text-align:center';
+err.textContent='❌ '+msg;
+}
+
+function checkAnswer(type,correct){
+// Remove any open modal
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+if(correct){
+showSuccessModal('🎉 Bonne réponse!',getSuccessMessage(type));
+logAction('Réponse correcte',type);
+}else{
+showFailModal('❌ Mauvaise réponse',getFailMessage(type));
+logAction('Réponse incorrecte',type);
+}
+}
+
+function getSuccessMessage(type){
+switch(type){
+case 'defect_report':return 'Il faut toujours consigner les défauts dans la main courante et en informer le PC sécurité ou le responsable.';
+case 'nominal':return 'Prise de poste terminée. Consignez RAS dans la main courante et commencez votre ronde.';
+case 'fausse_alarme':return 'Procédure correcte:<br>1. Niveau 2 SDI → Réarmer SDI<br>2. Niveau 2 SMSI → Remettre DAS en attente → Réarmer SMSI<br>3. Consigner l\'événement dans la main courante';
+case 'feu_avere':return 'Priorité absolue: appeler les secours (18 ou 112), guider l\'évacuation, <strong>ne jamais réarmer le SSI</strong> tant que les pompiers n\'ont pas donné le feu vert.';
+default:return 'Bonne réponse!';
+}
+}
+function getFailMessage(type){
+switch(type){
+case 'defect_report':return 'Un SSIAP doit consigner les défauts et informer sa hiérarchie. Il ne doit pas réparer lui-même ni ignorer les anomalies.';
+case 'nominal':return 'Quand le système est nominal, on consigne simplement RAS dans la main courante.';
+case 'fausse_alarme':return 'Après une fausse alarme confirmée, il faut réarmer le SDI puis le SMSI (en niveau 2) et consigner l\'événement.';
+case 'feu_avere':return 'En cas de feu avéré: <strong>appeler immédiatement les secours</strong>, ne pas réarmer le SSI, faciliter l\'évacuation.';
+default:return 'Essayez encore.';
+}
+}
+
+function showSuccessModal(title,msg){
+const m=document.createElement('div');m.className='modal-overlay';m.onclick=()=>m.remove();
+m.innerHTML='<div class="modal-content text-center" onclick="event.stopPropagation()"><div style="font-size:48px;margin-bottom:12px">✅</div><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#16a34a">'+title+'</h3><p style="font-size:14px;margin-bottom:16px;line-height:1.6">'+msg+'</p><button onclick="this.closest(\'.modal-overlay\').remove()" style="padding:12px 32px;background:#16a34a;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:14px">Continuer</button></div>';
+document.body.appendChild(m);
+}
+function showFailModal(title,msg){
+const m=document.createElement('div');m.className='modal-overlay';m.onclick=()=>m.remove();
+m.innerHTML='<div class="modal-content text-center" onclick="event.stopPropagation()"><div style="font-size:48px;margin-bottom:12px">❌</div><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">'+title+'</h3><p style="font-size:14px;margin-bottom:16px;line-height:1.6">'+msg+'</p><button onclick="this.closest(\'.modal-overlay\').remove()" style="padding:12px 32px;background:#dc2626;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:14px">Réessayer</button></div>';
+document.body.appendChild(m);
 }
 
 // ===== RENDER TRAINING =====
