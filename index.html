@@ -40,8 +40,8 @@ fireAlarmActive:false,alarmSound:false,alarms:[],
 detectors:Array(5).fill().map((_,i)=>{const locs=['Couloir RDC','Hall d\'accueil','Salle de réunion','Parking souterrain','Bureau direction','Couloir 1er étage','Local technique','Réserve','Cuisine','Salle informatique'];return{id:i+1,zone:'ZC'+Math.ceil((i+1)/2),address:'DAI '+(i+1),location:locs[Math.floor(Math.random()*locs.length)],state:'service',triggered:false,outOfService:false};}),
 manualAlarms:Array(3).fill().map((_,i)=>{const locs=['Couloir principal','Escalier B','Hall d\'entrée','Palier 2ème étage','Sortie secours','Accueil'];return{id:i+1,zone:'ZC'+(i+1),address:'DM '+(i+1),location:locs[Math.floor(Math.random()*locs.length)],state:'service',triggered:false,outOfService:false};})},
 smsi:{systemState:'service',batteryState:'service',powerState:'secteur',alarmState:'service',alarmSound:false,messages:[],
-compartmentZones:Array(3).fill().map((_,i)=>({id:i+1,zone:'ZC'+(i+1),address:'Compartiment Zone '+(i+1),state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false})),
-smokeZones:Array(3).fill().map((_,i)=>({id:i+1,zone:'ZF'+(i+1),address:'Désenfumage Zone '+(i+1),state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false})),
+compartmentZones:Array(3).fill().map((_,i)=>{const das=[['Porte CF 1','Couloir RDC'],['Porte CF 2','Hall 1er étage'],['Porte CF 3','Couloir 2ème'],['Porte CF 4','Escalier B'],['Porte CF 5','Accès parking'],['Porte CF 6','Local archives']];const d=das[Math.floor(Math.random()*das.length)];return{id:i+1,zone:'ZC'+(i+1),address:'Compartiment Zone '+(i+1),dasName:d[0],dasLocation:d[1],state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false};}),
+smokeZones:Array(3).fill().map((_,i)=>{const das=[['Clapet CF 1','Gaine technique RDC'],['Clapet CF 2','Gaine ventilation 1er'],['Clapet CF 3','Gaine extraction'],['Volet DF 1','Cage escalier A'],['Volet DF 2','Cage escalier B'],['Exutoire 1','Toiture Hall']];const d=das[Math.floor(Math.random()*das.length)];return{id:i+1,zone:'ZF'+(i+1),address:'Désenfumage Zone '+(i+1),dasName:d[0],dasLocation:d[1],state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false};}),
 relayBoxes:Array(3).fill().map((_,i)=>({id:i+1,address:'Coffret '+(i+1),state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false,stopped:false}))},
 uga:{alarmType:'generale',temporization:3,temporizationActive:false,temporizationRemaining:0,alarmActive:false},
 actionLog:[],outOfService:[],keypadInput:'',workflowStep:null,workflowData:{},
@@ -170,7 +170,18 @@ function updateAllLeds(){[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZone
 let temporizationTimer;
 function startTemporization(){if(temporizationTimer)clearInterval(temporizationTimer);temporizationTimer=setInterval(()=>{STATE.uga.temporizationRemaining--;if(STATE.uga.temporizationRemaining<=0){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;triggerGeneralAlarm();}updateTemporizationDisplay();},1000);}
 function updateTemporizationDisplay(){const el=document.querySelector('.temporization-display');if(el&&STATE.uga.temporizationActive){el.innerHTML='<div class="bg-yellow-600 text-white p-2 rounded text-center font-bold text-xs">⏱️ '+Math.floor(STATE.uga.temporizationRemaining/60)+':'+String(STATE.uga.temporizationRemaining%60).padStart(2,'0')+'</div>';}else if(el)el.innerHTML='';}
-function triggerGeneralAlarm(){STATE.uga.alarmActive=true;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;if(temporizationTimer)clearInterval(temporizationTimer);playGeneralAlarm(STATE.uga.alarmType);addSmsiMessage('Alarme '+STATE.uga.alarmType+' déclenchée');logAction('Déclenchement alarme générale',STATE.uga.alarmType);render();}
+function triggerGeneralAlarm(){STATE.uga.alarmActive=true;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;if(temporizationTimer)clearInterval(temporizationTimer);playGeneralAlarm(STATE.uga.alarmType);addSmsiMessage('Alarme '+STATE.uga.alarmType+' déclenchée');logAction('Déclenchement alarme générale',STATE.uga.alarmType);
+// Feu avéré: alarm forced manually = scenario progresses
+if(STATE.scenarioState.leveeResult==='feu_avere'&&!STATE.scenarioState.scenarioEnded){
+STATE.scenarioState.scenarioEnded=true;
+if(STATE.scenarioState.defautDas){
+setTimeout(()=>{showSuccessModal('🚨 Alarme déclenchée!','L\'alarme générale est active. Mais un <strong>DAS est en défaut de position de sécurité</strong>. Vous devez le traiter!');
+setTimeout(()=>{showDefautDasModal();},2000);},1500);
+}else{
+setTimeout(()=>{showScenarioEndModal('🚒 Alarme générale déclenchée!','L\'alarme générale a été déclenchée manuellement.<br><br>En situation réelle:<br>• Les secours sont en route (18/112)<br>• L\'évacuation est en cours<br>• Les DAS sont en position de sécurité<br>• Ne réarmez PAS le SSI avant l\'accord des pompiers');},1500);
+}
+}
+render();}
 function forceGeneralAlarm(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;}if(!STATE.uga.alarmActive)triggerGeneralAlarm();}
 function acquitProcess(){if(STATE.uga.temporizationActive){
 // If feu avéré: acquit is wrong, must trigger general alarm manually
@@ -188,7 +199,9 @@ function canResetSdiSystem(){return STATE.accessLevel===2&&STATE.sdi.manualAlarm
 function canResetSmsiSystem(){return STATE.smsiAccessLevel>=2&&[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].every(z=>z.state==='attente');}
 
 function resetSdiSystem(){if(!canResetSdiSystem()){showGuidance('erreur_rearm_sdi');return;}STATE.sdi.alarms=[];STATE.sdi.fireAlarmActive=false;STATE.sdi.alarmSound=false;STATE.sdi.detectors.forEach(d=>d.triggered=false);STATE.sdi.manualAlarms.forEach(d=>d.triggered=false);stopAlarmSound(true);if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;}logAction('Réarmement SDI');render();}
-function resetSmsiSystem(){if(!canResetSmsiSystem()){showGuidance('erreur_rearm_smsi');return;}STATE.smsi.messages=[];STATE.smsi.alarmSound=false;STATE.smsi.compartmentZones.forEach(z=>z.commandActive=false);STATE.smsi.smokeZones.forEach(z=>z.commandActive=false);STATE.uga.alarmActive=false;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;stopGeneralAlarm();stopAlarmSound(true);logAction('Réarmement SMSI');render();}
+function resetSmsiSystem(){if(!canResetSmsiSystem()){showGuidance('erreur_rearm_smsi');return;}STATE.smsi.messages=[];STATE.smsi.alarmSound=false;STATE.smsi.compartmentZones.forEach(z=>z.commandActive=false);STATE.smsi.smokeZones.forEach(z=>z.commandActive=false);STATE.uga.alarmActive=false;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;stopGeneralAlarm();stopAlarmSound(true);logAction('Réarmement SMSI');
+if(STATE.activeScenario==='rearmement'){setTimeout(()=>{showScenarioEndModal('Réarmement terminé!','Le SSI a été entièrement réarmé avec succès.<br><br>• SDI réarmé ✅<br>• SMSI réarmé ✅<br>• DAS en position d\'attente ✅<br><br>N\'oubliez pas de consigner dans la main courante.');},500);}
+render();}
 
 function scrollScreen(id,act){const s=document.getElementById(id);if(!s)return;const h=20;switch(act){case 'up':s.scrollTop-=h;break;case 'down':s.scrollTop+=h;break;case 'first':s.scrollTop=0;break;case 'last':s.scrollTop=s.scrollHeight;break;}}
 function keypadPress(k){if(k==='C')STATE.keypadInput='';else STATE.keypadInput+=k;render();}
@@ -301,8 +314,8 @@ STATE.sdi.fireAlarmActive=false;STATE.sdi.alarmSound=false;STATE.sdi.alarms=[];
 STATE.sdi.detectors.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';d.location=rl(daiLocs);});
 STATE.sdi.manualAlarms.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';d.location=rl(dmLocs);});
 STATE.smsi.systemState='service';STATE.smsi.batteryState='service';STATE.smsi.powerState='secteur';STATE.smsi.alarmState='service';STATE.smsi.alarmSound=false;STATE.smsi.messages=[];
-STATE.smsi.compartmentZones.forEach(z=>{z.state='attente';z.commandActive=false;z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
-STATE.smsi.smokeZones.forEach(z=>{z.state='attente';z.commandActive=false;z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
+STATE.smsi.compartmentZones.forEach(z=>{const das=[['Porte CF 1','Couloir RDC'],['Porte CF 2','Hall 1er étage'],['Porte CF 3','Couloir 2ème'],['Porte CF 4','Escalier B'],['Porte CF 5','Accès parking'],['Porte CF 6','Local archives']];const d=das[Math.floor(Math.random()*das.length)];z.state='attente';z.commandActive=false;z.dasName=d[0];z.dasLocation=d[1];z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
+STATE.smsi.smokeZones.forEach(z=>{const das=[['Clapet CF 1','Gaine technique RDC'],['Clapet CF 2','Gaine ventilation 1er'],['Clapet CF 3','Gaine extraction'],['Volet DF 1','Cage escalier A'],['Volet DF 2','Cage escalier B'],['Exutoire 1','Toiture Hall']];const d=das[Math.floor(Math.random()*das.length)];z.state='attente';z.commandActive=false;z.dasName=d[0];z.dasLocation=d[1];z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
 STATE.smsi.relayBoxes.forEach(r=>{r.state='attente';r.stopped=false;r.ledRed={on:false,blink:false};r.ledOrange={on:false,blink:false};r.ledGreen={on:false,blink:false};});
 STATE.uga.alarmActive=false;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;
 STATE.accessLevel=1;STATE.smsiAccessLevel=1;STATE.outOfService=[];STATE.keypadInput='';STATE.workflowStep=null;STATE.actionLog=[];
@@ -331,16 +344,53 @@ else{const id=rand(3);STATE.smsi.compartmentZones[id].state='defaut-attente';upd
 else if(type==='declenchement_dai'){
 const daiId=rand(5)+1;const dai=STATE.sdi.detectors[daiId-1];
 const zn=parseInt(dai.zone.replace('ZC',''));
-if(flip()){STATE.smsi.compartmentZones[zn-1].state=['defaut-securite','defaut-attente'][rand(2)];updateZoneLeds(STATE.smsi.compartmentZones[zn-1]);}
-STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=daiId;STATE.scenarioState.detectorType='DAI';
-setTimeout(()=>{triggerDetector('DAI',daiId,true);setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');render();},2000);
+// Random: parfois un DAS en défaut de position de sécurité
+const hasDefautDas=flip();
+let defautDasInfo=null;
+if(hasDefautDas){
+const dasType=rand(2);// 0=ZC, 1=ZF
+if(dasType===0){
+const z=STATE.smsi.compartmentZones[zn-1];
+z.state='defaut-securite';updateZoneLeds(z);
+defautDasInfo={type:'compartment',id:zn,zone:z.zone,dasName:z.dasName,dasLocation:z.dasLocation};
+}else{
+const z=STATE.smsi.smokeZones[zn-1];
+z.state='defaut-securite';updateZoneLeds(z);
+defautDasInfo={type:'smoke',id:zn,zone:z.zone,dasName:z.dasName,dasLocation:z.dasLocation};
+}
+}
+STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=daiId;STATE.scenarioState.detectorType='DAI';STATE.scenarioState.defautDas=defautDasInfo;
+setTimeout(()=>{
+triggerDetector('DAI',daiId,true);
+setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');
+if(defautDasInfo){addSmsiMessage('⚠️ DÉFAUT SÉCURITÉ: '+defautDasInfo.dasName+' - '+defautDasInfo.dasLocation+' ('+defautDasInfo.zone+')');}
+render();
+},2000);
 }
 else if(type==='declenchement_dm'){
 const dmId=rand(3)+1;const dm=STATE.sdi.manualAlarms[dmId-1];
 const zn=parseInt(dm.zone.replace('ZC',''));
-if(flip()){STATE.smsi.smokeZones[zn-1].state='defaut-securite';updateZoneLeds(STATE.smsi.smokeZones[zn-1]);}
-STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=dmId;STATE.scenarioState.detectorType='DM';
-setTimeout(()=>{triggerDetector('DM',dmId,true);setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');render();},2000);
+const hasDefautDas=flip();
+let defautDasInfo=null;
+if(hasDefautDas){
+const dasType=rand(2);
+if(dasType===0){
+const z=STATE.smsi.compartmentZones[zn-1];
+z.state='defaut-securite';updateZoneLeds(z);
+defautDasInfo={type:'compartment',id:zn,zone:z.zone,dasName:z.dasName,dasLocation:z.dasLocation};
+}else{
+const z=STATE.smsi.smokeZones[zn-1];
+z.state='defaut-securite';updateZoneLeds(z);
+defautDasInfo={type:'smoke',id:zn,zone:z.zone,dasName:z.dasName,dasLocation:z.dasLocation};
+}
+}
+STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=dmId;STATE.scenarioState.detectorType='DM';STATE.scenarioState.defautDas=defautDasInfo;
+setTimeout(()=>{
+triggerDetector('DM',dmId,true);
+setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');
+if(defautDasInfo){addSmsiMessage('⚠️ DÉFAUT SÉCURITÉ: '+defautDasInfo.dasName+' - '+defautDasInfo.dasLocation+' ('+defautDasInfo.zone+')');}
+render();
+},2000);
 }
 else if(type==='rearmement'){
 const zn=rand(3)+1;const dIdx=rand(5);
@@ -622,8 +672,23 @@ function checkAnswer(type,correct){
 // Remove any open modal
 document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
 if(correct){
-showSuccessModal('🎉 Bonne réponse!',getSuccessMessage(type));
 logAction('Réponse correcte',type);
+// Prise de poste ends
+if(type==='defect_report'||type==='nominal'){
+showScenarioEndModal('Prise de poste terminée!',getSuccessMessage(type));
+return;
+}
+// Fausse alarme: check for defaut DAS before ending
+if(type==='fausse_alarme'){
+if(STATE.scenarioState.defautDas){
+showSuccessModal('🎉 Bonne procédure!','Avant de réarmer, vous devez traiter le <strong>défaut de position de sécurité</strong> détecté sur un DAS.');
+setTimeout(()=>{showDefautDasModal();},2000);
+}else{
+showScenarioEndModal('Fausse alarme traitée!',getSuccessMessage(type)+'<br><br>Procédez au réarmement SDI puis SMSI.');
+}
+return;
+}
+showSuccessModal('🎉 Bonne réponse!',getSuccessMessage(type));
 }else{
 showFailModal('❌ Mauvaise réponse',getFailMessage(type));
 logAction('Réponse incorrecte',type);
@@ -658,6 +723,103 @@ function showFailModal(title,msg){
 const m=document.createElement('div');m.className='modal-overlay';m.onclick=()=>m.remove();
 m.innerHTML='<div class="modal-content text-center" onclick="event.stopPropagation()"><div style="font-size:48px;margin-bottom:12px">❌</div><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">'+title+'</h3><p style="font-size:14px;margin-bottom:16px;line-height:1.6">'+msg+'</p><button onclick="this.closest(\'.modal-overlay\').remove()" style="padding:12px 32px;background:#dc2626;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:14px">Réessayer</button></div>';
 document.body.appendChild(m);
+}
+
+function showScenarioEndModal(title,msg){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+stopGeneralAlarm();try{stopAlarmSound(true);}catch(e){}
+const m=document.createElement('div');m.className='modal-overlay';
+m.innerHTML='<div class="modal-content text-center" onclick="event.stopPropagation()">'+
+'<div style="font-size:56px;margin-bottom:12px">🎉</div>'+
+'<h3 style="font-size:20px;font-weight:bold;margin-bottom:12px;color:#16a34a">'+title+'</h3>'+
+'<p style="font-size:14px;margin-bottom:20px;line-height:1.6">'+msg+'</p>'+
+'<div style="background:#f0fdf4;padding:12px;border-radius:8px;margin-bottom:16px"><p style="font-size:13px;color:#166534">✅ Scénario terminé avec succès!</p></div>'+
+'<button onclick="document.querySelectorAll(\'.modal-overlay\').forEach(m=>m.remove());resetSSI();STATE.activeScenario=null;render()" style="width:100%;padding:14px;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:15px">🎯 Nouveau scénario</button>'+
+'</div>';
+document.body.appendChild(m);
+}
+
+// ===== DEFAUT DAS HANDLING =====
+function showDefautDasModal(){
+const dd=STATE.scenarioState.defautDas;
+if(!dd)return;
+const m=document.createElement('div');m.className='modal-overlay';m.id='defaut-das-modal';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#ea580c">⚠️ Défaut de position de sécurité</h3>';
+html+='<div style="background:#fef3c7;padding:14px;border-radius:8px;border-left:4px solid #f59e0b;margin-bottom:16px">';
+html+='<p style="font-size:14px;font-weight:bold;margin-bottom:4px">'+dd.dasName+' - '+dd.dasLocation+'</p>';
+html+='<p style="font-size:13px;color:#92400e">'+dd.zone+' en défaut de position de sécurité</p>';
+html+='</div>';
+html+='<p style="font-size:14px;margin-bottom:16px">Ce DAS n\'a pas atteint sa position de sécurité. Quelle est la conduite à tenir?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="defautDasChoice(\'levee_doute\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔍 Effectuer une levée de doute sur le DAS et le mettre en position de sécurité (CMD ou manuellement)</button>';
+html+='<button onclick="defautDasChoice(\'ignorer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">❌ Ignorer le défaut et continuer</button>';
+html+='<button onclick="defautDasChoice(\'rearmer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SMSI pour effacer le défaut</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function defautDasChoice(choice){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+const dd=STATE.scenarioState.defautDas;
+if(choice==='levee_doute'){
+logAction('Levée de doute DAS',dd.dasName+' - '+dd.dasLocation);
+addSmsiMessage('Levée de doute: '+dd.dasName+' - '+dd.dasLocation);
+setTimeout(()=>{showDefautDasActionModal();},500);
+}else if(choice==='ignorer'){
+showFailModal('❌ Dangereux!','Un DAS en défaut de sécurité ne protège plus les occupants. Il faut <strong>vérifier et forcer la position de sécurité</strong> du DAS.');
+}else{
+showFailModal('❌ Impossible!','On ne peut pas réarmer tant qu\'un DAS est en défaut. Il faut d\'abord <strong>mettre le DAS en position de sécurité</strong> (commande CMD ou manuellement).');
+}
+}
+
+function showDefautDasActionModal(){
+const dd=STATE.scenarioState.defautDas;
+const isZC=dd.type==='compartment';
+const m=document.createElement('div');m.className='modal-overlay';m.id='das-action-modal';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#2563eb">🔧 Mise en position de sécurité</h3>';
+html+='<p style="font-size:14px;margin-bottom:12px"><strong>'+dd.dasName+' - '+dd.dasLocation+'</strong></p>';
+html+='<p style="font-size:14px;margin-bottom:16px">Comment mettre ce DAS en position de sécurité?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+if(isZC){
+html+='<button onclick="defautDasAction(\'cmd\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🎛️ Forcer la commande CMD sur le UCMC ('+dd.zone+') pour fermer la porte CF</button>';
+html+='<button onclick="defautDasAction(\'manual\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚪 Aller fermer la porte CF manuellement sur place</button>';
+}else{
+html+='<button onclick="defautDasAction(\'cmd\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🎛️ Forcer la commande CMD sur le UCMC ('+dd.zone+') pour activer le désenfumage</button>';
+html+='<button onclick="defautDasAction(\'manual\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔧 Aller ouvrir le clapet/volet manuellement sur place</button>';
+}
+html+='<button onclick="defautDasAction(\'wrong\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⚠️ Mettre la zone hors service</button>';
+html+='</div></div>';
+m.innerHTML=html;document.body.appendChild(m);
+}
+
+function defautDasAction(action){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+const dd=STATE.scenarioState.defautDas;
+if(action==='cmd'){
+logAction('CMD forcée',dd.dasName);
+addSmsiMessage('Commande forcée: '+dd.dasName+' → position de sécurité');
+if(dd.type==='compartment'){
+const z=STATE.smsi.compartmentZones[dd.id-1];z.state='securite';z.commandActive=true;updateZoneLeds(z);
+}else{
+const z=STATE.smsi.smokeZones[dd.id-1];z.state='securite';z.commandActive=true;updateZoneLeds(z);
+}
+STATE.scenarioState.defautDas=null;
+render();
+showScenarioEndModal('DAS corrigé - Scénario terminé!',dd.dasName+' est maintenant en position de sécurité via la commande UCMC.<br><br>✅ Vous avez correctement traité le défaut de position de sécurité.');
+}else if(action==='manual'){
+logAction('Action manuelle',dd.dasName);
+addSmsiMessage('Action manuelle: '+dd.dasName+' → position de sécurité');
+if(dd.type==='compartment'){
+const z=STATE.smsi.compartmentZones[dd.id-1];z.state='securite';updateZoneLeds(z);
+}else{
+const z=STATE.smsi.smokeZones[dd.id-1];z.state='securite';updateZoneLeds(z);
+}
+STATE.scenarioState.defautDas=null;
+render();
+showScenarioEndModal('DAS corrigé - Scénario terminé!',dd.dasName+' a été mis en position de sécurité manuellement.<br><br>⚠️ En situation réelle, privilégiez la commande UCMC quand elle est disponible.');
+}else{
+showFailModal('❌ Mauvaise procédure!','Mettre la zone hors service n\'est pas la bonne réponse. Il faut <strong>forcer la position de sécurité</strong> du DAS, soit par la commande CMD sur l\'UCMC, soit manuellement sur place.');
+}
 }
 
 // ===== MHS / RS SCENARIO MODALS =====
@@ -714,7 +876,7 @@ showMhsErrorModal(wrongHs[0],STATE.scenarioState.mhsTarget);
 }
 
 function showMhsSuccessModal(target){
-showSuccessModal('🎉 Mise Hors Service réussie!','Vous avez correctement mis hors service <strong>'+target.address+'</strong>.<br><br>N\'oubliez pas de:<br>• Consigner dans la main courante<br>• Informer le PC sécurité<br>• Mettre en place une surveillance renforcée de la zone');
+showScenarioEndModal('Mise Hors Service réussie!','Vous avez correctement mis hors service <strong>'+target.address+'</strong>.<br><br>N\'oubliez pas de:<br>• Consigner dans la main courante<br>• Informer le PC sécurité<br>• Mettre en place une surveillance renforcée de la zone');
 }
 
 function showMhsErrorModal(wrong,expected){
@@ -770,7 +932,7 @@ showRsSuccessModal(t);
 }
 
 function showRsSuccessModal(target){
-showSuccessModal('🎉 Remise en Service réussie!','Vous avez correctement remis en service <strong>'+target.address+' - '+target.location+'</strong>.<br><br>N\'oubliez pas de:<br>• Consigner dans la main courante<br>• Vérifier le fonctionnement du matériel<br>• Informer le PC sécurité');
+showScenarioEndModal('Remise en Service réussie!','Vous avez correctement remis en service <strong>'+target.address+' - '+target.location+'</strong>.<br><br>N\'oubliez pas de:<br>• Consigner dans la main courante<br>• Vérifier le fonctionnement du matériel<br>• Informer le PC sécurité');
 }
 
 // ===== RENDER TRAINING =====
