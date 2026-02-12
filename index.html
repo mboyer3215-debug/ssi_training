@@ -159,11 +159,11 @@ else if(zt==='relay'){z=STATE.smsi.relayBoxes.find(x=>x.id===id);if(z){z.state=s
 }
 function updateZoneLeds(z){z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};
 if(STATE.sdi.fireAlarmActive){if(z.state==='securite')z.ledRed={on:true,blink:false};else if(z.state==='defaut-securite')z.ledRed={on:true,blink:true};}
-else{switch(z.state){case 'attente':break;case 'defaut-alim':z.ledOrange={on:true,blink:true};break;case 'defaut-attente':z.ledOrange={on:true,blink:false};break;case 'securite':z.ledGreen={on:true,blink:false};break;case 'defaut-securite':z.ledRed={on:true,blink:false};break;}}
+else{switch(z.state){case 'attente':break;case 'defaut-alim':z.ledOrange={on:true,blink:true};break;case 'defaut-attente':z.ledOrange={on:true,blink:false};break;case 'securite':z.ledGreen={on:true,blink:false};break;case 'defaut-securite':z.ledRed={on:true,blink:true};break;}}
 }
 function updateRelayLeds(r){r.ledRed={on:false,blink:false};r.ledOrange={on:false,blink:false};r.ledGreen={on:false,blink:false};
 if(STATE.sdi.fireAlarmActive){if(r.state==='securite')r.ledRed={on:true,blink:false};else if(r.state==='defaut-securite')r.ledRed={on:true,blink:true};}
-else{switch(r.state){case 'attente':break;case 'defaut-alim':r.ledOrange={on:true,blink:true};break;case 'defaut-attente':r.ledOrange={on:true,blink:false};break;case 'securite':r.ledGreen={on:true,blink:false};break;case 'defaut-securite':r.ledRed={on:true,blink:false};break;}}
+else{switch(r.state){case 'attente':break;case 'defaut-alim':r.ledOrange={on:true,blink:true};break;case 'defaut-attente':r.ledOrange={on:true,blink:false};break;case 'securite':r.ledGreen={on:true,blink:false};break;case 'defaut-securite':r.ledRed={on:true,blink:true};break;}}
 }
 function updateAllLeds(){[...STATE.smsi.compartmentZones,...STATE.smsi.smokeZones].forEach(z=>updateZoneLeds(z));STATE.smsi.relayBoxes.forEach(r=>updateRelayLeds(r));}
 
