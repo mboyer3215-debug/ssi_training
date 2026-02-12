@@ -37,8 +37,8 @@ const STATE={
 currentView:'login',currentUser:null,accessLevel:1,smsiAccessLevel:1,
 sdi:{systemState:'service',batteryState:'service',powerState:'secteur',
 fireAlarmActive:false,alarmSound:false,alarms:[],
-detectors:Array(5).fill().map((_,i)=>({id:i+1,zone:'ZC'+Math.ceil((i+1)/2),address:'DAI '+(i+1),state:'service',triggered:false,outOfService:false})),
-manualAlarms:Array(3).fill().map((_,i)=>({id:i+1,zone:'ZC'+(i+1),address:'DM '+(i+1),state:'service',triggered:false,outOfService:false}))},
+detectors:Array(5).fill().map((_,i)=>{const locs=['Couloir RDC','Hall d\'accueil','Salle de réunion','Parking souterrain','Bureau direction','Couloir 1er étage','Local technique','Réserve','Cuisine','Salle informatique'];return{id:i+1,zone:'ZC'+Math.ceil((i+1)/2),address:'DAI '+(i+1),location:locs[Math.floor(Math.random()*locs.length)],state:'service',triggered:false,outOfService:false};}),
+manualAlarms:Array(3).fill().map((_,i)=>{const locs=['Couloir principal','Escalier B','Hall d\'entrée','Palier 2ème étage','Sortie secours','Accueil'];return{id:i+1,zone:'ZC'+(i+1),address:'DM '+(i+1),location:locs[Math.floor(Math.random()*locs.length)],state:'service',triggered:false,outOfService:false};})},
 smsi:{systemState:'service',batteryState:'service',powerState:'secteur',alarmState:'service',alarmSound:false,messages:[],
 compartmentZones:Array(3).fill().map((_,i)=>({id:i+1,zone:'ZC'+(i+1),address:'Compartiment Zone '+(i+1),state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false})),
 smokeZones:Array(3).fill().map((_,i)=>({id:i+1,zone:'ZF'+(i+1),address:'Désenfumage Zone '+(i+1),state:'attente',ledRed:{on:false,blink:false},ledOrange:{on:false,blink:false},ledGreen:{on:false,blink:false},commandActive:false})),
@@ -97,6 +97,8 @@ function b64toAB(uri){const b=atob(uri.split(',')[1]);const a=new Uint8Array(b.l
 
 function playAlarmSound(){initAudio();if(audioContext.state==='suspended')audioContext.resume();if(alarmOscillator)return;alarmOscillator=audioContext.createOscillator();const g=audioContext.createGain();alarmOscillator.connect(g);g.connect(audioContext.destination);alarmOscillator.frequency.value=1000;g.gain.value=0.3;alarmOscillator.start();}
 function stopAlarmSound(s){if(alarmOscillator){try{alarmOscillator.stop();}catch(e){}alarmOscillator=null;}STATE.sdi.alarmSound=false;if(!s){logAction('Arrêt signal sonore');
+// In DAI/DM scenario: show conduite à tenir after stopping sound
+if((STATE.activeScenario==='declenchement_dai'||STATE.activeScenario==='declenchement_dm')&&!STATE.scenarioState.conduiteShown){STATE.scenarioState.conduiteShown=true;setTimeout(()=>{showConduiteATenirModal();},800);}
 // In réarmement scenario: show guide after stopping sound
 if(STATE.activeScenario==='rearmement'&&!STATE.scenarioState.rearmGuideShown){STATE.scenarioState.rearmGuideShown=true;setTimeout(()=>{showRearmementGuideModal();},800);}
 }}
@@ -138,8 +140,9 @@ function triggerDetector(type,id,playSound){
 const arr=type==='DAI'?STATE.sdi.detectors:STATE.sdi.manualAlarms;const d=arr.find(x=>x.id===id);
 if(!d||d.outOfService||d.state==='hors-service'){addSdiMessage((d?d.address:type+id)+' hors service');return;}
 d.triggered=true;STATE.sdi.fireAlarmActive=true;STATE.sdi.alarmSound=true;
-STATE.sdi.alarms.push({text:'Alarme feu '+d.address,timestamp:new Date().toISOString()});
-addSmsiMessage('Alarme détectée: '+d.address);
+const locStr=d.location?' - '+d.location:'';
+STATE.sdi.alarms.push({text:'⚠️ Alarme feu '+d.address+locStr+' ('+d.zone+')',timestamp:new Date().toISOString()});
+addSmsiMessage('Alarme détectée: '+d.address+locStr);
 if(!STATE.uga.alarmActive){
 if(STATE.uga.temporization>0&&!STATE.uga.temporizationActive){STATE.uga.temporizationActive=true;STATE.uga.temporizationRemaining=STATE.uga.temporization*60;startTemporization();}
 else if(STATE.uga.temporization===0){triggerGeneralAlarm();}
@@ -169,9 +172,16 @@ function startTemporization(){if(temporizationTimer)clearInterval(temporizationT
 function updateTemporizationDisplay(){const el=document.querySelector('.temporization-display');if(el&&STATE.uga.temporizationActive){el.innerHTML='<div class="bg-yellow-600 text-white p-2 rounded text-center font-bold text-xs">⏱️ '+Math.floor(STATE.uga.temporizationRemaining/60)+':'+String(STATE.uga.temporizationRemaining%60).padStart(2,'0')+'</div>';}else if(el)el.innerHTML='';}
 function triggerGeneralAlarm(){STATE.uga.alarmActive=true;STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;if(temporizationTimer)clearInterval(temporizationTimer);playGeneralAlarm(STATE.uga.alarmType);addSmsiMessage('Alarme '+STATE.uga.alarmType+' déclenchée');logAction('Déclenchement alarme générale',STATE.uga.alarmType);render();}
 function forceGeneralAlarm(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;}if(!STATE.uga.alarmActive)triggerGeneralAlarm();}
-function acquitProcess(){if(STATE.uga.temporizationActive){clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;addSmsiMessage('Processus alarme acquitté');logAction('Acquit processus alarme');
-// In training: show levée de doute modal
-if(STATE.activeScenario==='declenchement_dai'||STATE.activeScenario==='declenchement_dm'){setTimeout(()=>{showLeveeDouteModal();},800);}
+function acquitProcess(){if(STATE.uga.temporizationActive){
+// If feu avéré: acquit is wrong, must trigger general alarm manually
+if(STATE.scenarioState.leveeResult==='feu_avere'){
+addSmsiMessage('❌ ERREUR: Feu avéré en cours!');
+addSmsiMessage('→ Vous devez déclencher l\'alarme générale en MANUEL (bouton FORCÉ 3s)');
+showCustomAlert('❌ Feu avéré en cours!<br><br>Vous ne pouvez pas acquitter le processus.<br>Vous devez <strong>déclencher l\'alarme générale manuellement</strong> avec le bouton 🚨 FORCÉ (maintenir 3 secondes).');
+logAction('Erreur: acquit sur feu avéré');
+return;
+}
+clearInterval(temporizationTimer);STATE.uga.temporizationActive=false;STATE.uga.temporizationRemaining=0;addSmsiMessage('Processus alarme acquitté');logAction('Acquit processus alarme');
 render();}}
 
 function canResetSdiSystem(){return STATE.accessLevel===2&&STATE.sdi.manualAlarms.every(d=>!d.triggered)&&STATE.sdi.detectors.every(d=>!d.triggered);}
@@ -283,10 +293,13 @@ function cancelForceAlarm(){if(forceAlarmTimeout){clearTimeout(forceAlarmTimeout
 
 // ===== SCENARIOS =====
 function resetSSI(){
+const daiLocs=['Couloir RDC','Hall d\'accueil','Salle de réunion','Parking souterrain','Bureau direction','Couloir 1er étage','Local technique','Réserve','Cuisine','Salle informatique'];
+const dmLocs=['Couloir principal','Escalier B','Hall d\'entrée','Palier 2ème étage','Sortie secours','Accueil','Cage escalier A','Couloir Nord','Hall exposition'];
+const rl=a=>a[Math.floor(Math.random()*a.length)];
 STATE.sdi.systemState='service';STATE.sdi.batteryState='service';STATE.sdi.powerState='secteur';
 STATE.sdi.fireAlarmActive=false;STATE.sdi.alarmSound=false;STATE.sdi.alarms=[];
-STATE.sdi.detectors.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';});
-STATE.sdi.manualAlarms.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';});
+STATE.sdi.detectors.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';d.location=rl(daiLocs);});
+STATE.sdi.manualAlarms.forEach(d=>{d.triggered=false;d.outOfService=false;d.state='service';d.location=rl(dmLocs);});
 STATE.smsi.systemState='service';STATE.smsi.batteryState='service';STATE.smsi.powerState='secteur';STATE.smsi.alarmState='service';STATE.smsi.alarmSound=false;STATE.smsi.messages=[];
 STATE.smsi.compartmentZones.forEach(z=>{z.state='attente';z.commandActive=false;z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
 STATE.smsi.smokeZones.forEach(z=>{z.state='attente';z.commandActive=false;z.ledRed={on:false,blink:false};z.ledOrange={on:false,blink:false};z.ledGreen={on:false,blink:false};});
@@ -302,7 +315,6 @@ const rand=n=>Math.floor(Math.random()*n);
 const flip=()=>Math.random()>0.5;
 
 if(type==='prise_de_poste'){
-addSdiMessage('=== PRISE DE POSTE ===');addSmsiMessage('=== PRISE DE POSTE ===');
 const nb=rand(4);
 for(let i=0;i<nb;i++){
 const dt=rand(6);
@@ -313,34 +325,30 @@ else if(dt===3)STATE.smsi.batteryState='hors-service';
 else if(dt===4)STATE.sdi.powerState='batterie';
 else{const id=rand(3);STATE.smsi.compartmentZones[id].state='defaut-attente';updateZoneLeds(STATE.smsi.compartmentZones[id]);}
 }
-addSdiMessage('Effectuez votre prise de poste');
-addSdiMessage('Vérifiez les voyants et faites un bilan');
 }
 else if(type==='declenchement_dai'){
-addSdiMessage('=== DÉCLENCHEMENT DAI ===');addSmsiMessage('=== DÉCLENCHEMENT DAI ===');
 const daiId=rand(5)+1;const dai=STATE.sdi.detectors[daiId-1];
 const zn=parseInt(dai.zone.replace('ZC',''));
 if(flip()){STATE.smsi.compartmentZones[zn-1].state=['defaut-securite','defaut-attente'][rand(2)];updateZoneLeds(STATE.smsi.compartmentZones[zn-1]);}
-STATE.scenarioState.zone=zn;
-addSdiMessage('En attente...');
+STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=daiId;STATE.scenarioState.detectorType='DAI';
 setTimeout(()=>{triggerDetector('DAI',daiId,true);setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');render();},2000);
 }
 else if(type==='declenchement_dm'){
-addSdiMessage('=== DÉCLENCHEMENT DM ===');addSmsiMessage('=== DÉCLENCHEMENT DM ===');
 const dmId=rand(3)+1;const dm=STATE.sdi.manualAlarms[dmId-1];
 const zn=parseInt(dm.zone.replace('ZC',''));
 if(flip()){STATE.smsi.smokeZones[zn-1].state='defaut-securite';updateZoneLeds(STATE.smsi.smokeZones[zn-1]);}
-STATE.scenarioState.zone=zn;
-addSdiMessage('En attente...');
+STATE.scenarioState.zone=zn;STATE.scenarioState.detectorId=dmId;STATE.scenarioState.detectorType='DM';
 setTimeout(()=>{triggerDetector('DM',dmId,true);setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');render();},2000);
 }
 else if(type==='rearmement'){
-addSdiMessage('=== RÉARMEMENT SSI ===');addSmsiMessage('=== RÉARMEMENT SSI ===');
-const zn=rand(3)+1;
+const zn=rand(3)+1;const dIdx=rand(5);
 STATE.sdi.fireAlarmActive=true;STATE.sdi.alarmSound=true;
-STATE.sdi.detectors[rand(5)].triggered=true;STATE.uga.alarmActive=true;
+STATE.sdi.detectors[dIdx].triggered=true;STATE.uga.alarmActive=true;
+STATE.scenarioState.zone=zn;
+const det=STATE.sdi.detectors[dIdx];
+addSdiMessage('⚠️ Alarme feu '+det.address+' - '+det.location+' ('+det.zone+')');
 setZoneState('compartment',zn,'securite');setZoneState('smoke',zn,'securite');setZoneState('relay',zn,'securite');
-updateAllLeds();addSdiMessage('⚠️ Alarme feu active');playAlarmSound();
+updateAllLeds();playAlarmSound();
 }
 render();
 }
@@ -391,56 +399,102 @@ html+='</div></div>';
 m.innerHTML=html;document.body.appendChild(m);
 }
 
-function showLeveeDouteModal(){
-const m=document.createElement('div');m.className='modal-overlay';m.id='levee-doute-modal';
-let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#ea580c">🔍 Levée de doute</h3>';
-html+='<p style="margin-bottom:12px;font-size:14px">Vous avez acquitté le processus. Vous devez maintenant effectuer une levée de doute sur la zone concernée.</p>';
-html+='<p style="margin-bottom:16px;font-size:14px;font-weight:bold">Résultat de la levée de doute:</p>';
+function showConduiteATenirModal(){
+const m=document.createElement('div');m.className='modal-overlay';m.id='conduite-modal';
+const det=STATE.scenarioState.detectorType==='DAI'?STATE.sdi.detectors.find(d=>d.id===STATE.scenarioState.detectorId):STATE.sdi.manualAlarms.find(d=>d.id===STATE.scenarioState.detectorId);
+const detInfo=det?(det.address+' - '+det.location+' ('+det.zone+')'):'Détecteur inconnu';
+let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#ea580c">🚨 Alarme détectée!</h3>';
+html+='<p style="margin-bottom:8px;font-size:14px"><strong>'+detInfo+'</strong></p>';
+html+='<p style="margin-bottom:16px;font-size:14px">Signal sonore acquitté. Quelle est la conduite à tenir?</p>';
 html+='<div style="display:flex;flex-direction:column;gap:8px">';
-html+='<button onclick="leveeDouteResult(\'fausse_alarme\')" style="padding:14px;border-radius:8px;border:2px solid #22c55e;background:#dcfce7;cursor:pointer;text-align:left;font-size:14px;font-weight:bold">✅ Fausse alarme - Rien à signaler</button>';
-html+='<button onclick="leveeDouteResult(\'feu_avere\')" style="padding:14px;border-radius:8px;border:2px solid #ef4444;background:#fee2e2;cursor:pointer;text-align:left;font-size:14px;font-weight:bold">🔥 Feu avéré - Incendie confirmé</button>';
+html+='<button onclick="conduiteChoice(\'levee_doute\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔍 Effectuer une levée de doute sur la zone</button>';
+html+='<button onclick="conduiteChoice(\'appeler_pompiers\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚒 Appeler immédiatement les pompiers</button>';
+html+='<button onclick="conduiteChoice(\'rearmer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SSI directement</button>';
+html+='<button onclick="conduiteChoice(\'ignorer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⏳ Attendre la fin de la temporisation sans rien faire</button>';
 html+='</div></div>';
 m.innerHTML=html;document.body.appendChild(m);
 }
 
-function leveeDouteResult(result){
-const m=document.getElementById('levee-doute-modal');if(m)m.remove();
-if(result==='fausse_alarme'){
-logAction('Levée de doute','Fausse alarme');
-addSdiMessage('Fausse alarme confirmée');
-addSmsiMessage('Fausse alarme - Procéder au réarmement');
-setTimeout(()=>{showFausseAlarmeModal();},500);
+function conduiteChoice(choice){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+if(choice==='levee_doute'){
+logAction('Conduite à tenir','Levée de doute choisie');
+addSdiMessage('Levée de doute en cours...');
+// Random result
+const result=Math.random()>0.5?'feu_avere':'fausse_alarme';
+STATE.scenarioState.leveeResult=result;
+setTimeout(()=>{showLeveeDouteResultModal(result);},1500);
+}else if(choice==='appeler_pompiers'){
+showFailModal('❌ Trop tôt!','Avant d\'appeler les secours, vous devez d\'abord effectuer une <strong>levée de doute</strong> pour confirmer s\'il y a réellement un sinistre. C\'est la procédure SSIAP.');
+}else if(choice==='rearmer'){
+showFailModal('❌ Mauvaise procédure!','On ne réarme jamais le SSI avant d\'avoir effectué une <strong>levée de doute</strong>. L\'alarme est peut-être justifiée!');
 }else{
-logAction('Levée de doute','Feu avéré');
-addSdiMessage('🔥 FEU AVÉRÉ - Zone '+STATE.scenarioState.zone);
-addSmsiMessage('🔥 FEU AVÉRÉ');
-setTimeout(()=>{showFeuAvereModal();},500);
+showFailModal('❌ Inaction dangereuse!','Ne rien faire est dangereux. Vous devez effectuer une <strong>levée de doute</strong> immédiatement pour vérifier la zone concernée.');
 }
-render();
 }
 
-function showFausseAlarmeModal(){
-const m=document.createElement('div');m.className='modal-overlay';
-let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#16a34a">✅ Fausse alarme</h3>';
-html+='<p style="margin-bottom:12px;font-size:14px">La levée de doute confirme une fausse alarme. Quelle est la procédure?</p>';
+function showLeveeDouteResultModal(result){
+const m=document.createElement('div');m.className='modal-overlay';m.id='levee-result-modal';
+const det=STATE.scenarioState.detectorType==='DAI'?STATE.sdi.detectors.find(d=>d.id===STATE.scenarioState.detectorId):STATE.sdi.manualAlarms.find(d=>d.id===STATE.scenarioState.detectorId);
+const loc=det?det.location:'zone';
+if(result==='fausse_alarme'){
+let html='<div class="modal-content text-center" onclick="event.stopPropagation()"><div style="font-size:48px;margin-bottom:12px">✅</div>';
+html+='<h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#16a34a">Fausse alarme</h3>';
+html+='<p style="font-size:14px;margin-bottom:16px">La levée de doute dans <strong>'+loc+'</strong> ne révèle aucun sinistre. Quelle est la procédure?</p>';
 html+='<div style="display:flex;flex-direction:column;gap:8px">';
-html+='<button onclick="checkAnswer(\'fausse_alarme\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SDI (niveau 2) puis réarmer le SMSI (niveau 2) et consigner dans la main courante</button>';
-html+='<button onclick="checkAnswer(\'fausse_alarme\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">📞 Appeler les pompiers par précaution</button>';
-html+='<button onclick="checkAnswer(\'fausse_alarme\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⚠️ Mettre le détecteur hors service</button>';
+html+='<button onclick="fausseAlarmeChoice(\'rearmer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Acquitter le processus, réarmer SDI (niv.2) puis SMSI (niv.2) et consigner dans la main courante</button>';
+html+='<button onclick="fausseAlarmeChoice(\'pompiers\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚒 Appeler les pompiers quand même</button>';
+html+='<button onclick="fausseAlarmeChoice(\'hs\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">⚠️ Mettre le détecteur hors service</button>';
 html+='</div></div>';
-m.innerHTML=html;document.body.appendChild(m);
+m.innerHTML=html;
+logAction('Levée de doute','Fausse alarme à '+loc);
+addSdiMessage('✅ Fausse alarme - '+loc);
+addSmsiMessage('Fausse alarme confirmée');
+}else{
+let html='<div class="modal-content text-center" onclick="event.stopPropagation()"><div style="font-size:48px;margin-bottom:12px">🔥</div>';
+html+='<h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">FEU AVÉRÉ!</h3>';
+html+='<p style="font-size:14px;margin-bottom:16px">Un départ de feu est confirmé dans <strong>'+loc+'</strong>! Quelle est la conduite immédiate?</p>';
+html+='<div style="display:flex;flex-direction:column;gap:8px">';
+html+='<button onclick="feuAvereChoice(\'alarm_manual\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚨 Déclencher l\'alarme générale manuellement et appeler les secours (18/112)</button>';
+html+='<button onclick="feuAvereChoice(\'acquit\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">✋ Acquitter le processus et attendre</button>';
+html+='<button onclick="feuAvereChoice(\'rearmer\')" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SSI pour couper l\'alarme</button>';
+html+='</div></div>';
+m.innerHTML=html;
+logAction('Levée de doute','Feu avéré à '+loc);
+addSdiMessage('🔥 FEU AVÉRÉ - '+loc);
+addSmsiMessage('🔥 FEU AVÉRÉ - '+loc);
+}
+document.body.appendChild(m);render();
 }
 
-function showFeuAvereModal(){
-const m=document.createElement('div');m.className='modal-overlay';
-let html='<div class="modal-content" onclick="event.stopPropagation()"><h3 style="font-size:18px;font-weight:bold;margin-bottom:12px;color:#dc2626">🔥 Feu avéré!</h3>';
-html+='<p style="margin-bottom:12px;font-size:14px">Un incendie est confirmé dans la zone. Quelle est la conduite à tenir?</p>';
-html+='<div style="display:flex;flex-direction:column;gap:8px">';
-html+='<button onclick="checkAnswer(\'feu_avere\',true)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🚒 Appeler les secours (18/112), guider l\'évacuation, ne pas réarmer le SSI</button>';
-html+='<button onclick="checkAnswer(\'feu_avere\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔄 Réarmer le SSI pour arrêter l\'alarme</button>';
-html+='<button onclick="checkAnswer(\'feu_avere\',false)" style="padding:12px;border-radius:8px;border:2px solid #ddd;background:white;cursor:pointer;text-align:left;font-size:13px">🔇 Couper le signal sonore et attendre</button>';
-html+='</div></div>';
-m.innerHTML=html;document.body.appendChild(m);
+function fausseAlarmeChoice(choice){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+if(choice==='rearmer'){
+checkAnswer('fausse_alarme',true);
+}else if(choice==='pompiers'){
+showFailModal('❌ Disproportionné','C\'est une fausse alarme confirmée. Il faut simplement réarmer le SSI et consigner l\'événement dans la main courante.');
+}else{
+showFailModal('❌ Mauvaise procédure','Mettre un détecteur hors service n\'est pas la bonne réponse. Il faut réarmer le SDI (niv.2) puis le SMSI (niv.2) et consigner.');
+}
+}
+
+function feuAvereChoice(choice){
+document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+if(choice==='alarm_manual'){
+logAction('Bonne réponse','Déclenchement alarme manuelle + appel secours');
+addSmsiMessage('→ Déclenchez l\'alarme générale: bouton 🚨 FORCÉ (3 secondes)');
+addSdiMessage('→ Appeler 18 ou 112');
+showSuccessModal('🎉 Bonne réponse!','En cas de feu avéré:<br>1. <strong>Déclencher l\'alarme générale manuellement</strong> (bouton FORCÉ 3s)<br>2. <strong>Appeler les secours</strong> (18 ou 112)<br>3. Guider l\'évacuation<br>4. Ne PAS réarmer le SSI<br><br>Utilisez maintenant le bouton 🚨 FORCÉ pour déclencher l\'alarme.');
+}else if(choice==='acquit'){
+showFailModal('❌ Dangereux!','Acquitter le processus sur un feu avéré est <strong>interdit</strong>. Il faut au contraire <strong>déclencher l\'alarme générale manuellement</strong> pour évacuer le bâtiment.');
+}else{
+showFailModal('❌ Dangereux!','<strong>Ne JAMAIS réarmer</strong> le SSI pendant un incendie! Les DAS (portes coupe-feu, désenfumage) protègent les occupants. Il faut déclencher l\'alarme générale manuellement.');
+}
+}
+
+function showLeveeDouteModal(){
+// Legacy - redirect to conduite à tenir
+showConduiteATenirModal();
 }
 
 function showRearmementGuideModal(){
